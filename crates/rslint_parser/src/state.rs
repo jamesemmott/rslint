@@ -40,6 +40,9 @@ pub struct ParserState {
     pub default_item: Option<Range<usize>>,
     /// The recovery set primary_expr will use
     pub expr_recovery_set: TokenSet,
+    /// Whether the parser is in a conditional expr (ternary expr)
+    pub in_cond_expr: bool,
+    pub in_case_cond: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -65,6 +68,8 @@ impl Default for ParserState {
             is_module: false,
             default_item: None,
             expr_recovery_set: EXPR_RECOVERY_SET,
+            in_cond_expr: false,
+            in_case_cond: false,
         }
     }
 }
@@ -85,6 +90,8 @@ impl ParserState {
             is_module: true,
             default_item: None,
             expr_recovery_set: EXPR_RECOVERY_SET,
+            in_cond_expr: false,
+            in_case_cond: false,
         }
     }
 

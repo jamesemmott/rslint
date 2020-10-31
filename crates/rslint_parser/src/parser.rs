@@ -3,6 +3,7 @@
 //! the parser yields events like `Start node`, `Error`, etc.
 //! These events are then applied to a `TreeSink`.
 
+use std::borrow::BorrowMut;
 use std::cell::Cell;
 use std::ops::Range;
 
@@ -375,18 +376,31 @@ impl<'t> Parser<'t> {
         &self.tokens.source()[range]
     }
 
-    /// Rewind the token position back to a former position
-    pub fn rewind(&mut self, pos: usize) {
-        self.tokens.rewind(pos)
+    /// Rewind the parser back to a previous position in time
+    pub fn rewind(&mut self, checkpoint: Checkpoint) {
+        let Checkpoint {
+            token_pos,
+            event_pos,
+        } = checkpoint;
+        self.tokens.rewind(token_pos);
+        self.drain_events(self.cur_event_pos() - event_pos);
+    }
+
+    /// Get a checkpoint representing the progress of the parser at this point in time
+    pub fn checkpoint(&self) -> Checkpoint {
+        Checkpoint {
+            token_pos: self.token_pos(),
+            event_pos: self.cur_event_pos(),
+        }
     }
 
     /// Get the current index of the last event
-    pub fn cur_event_pos(&self) -> usize {
+    fn cur_event_pos(&self) -> usize {
         self.events.len().saturating_sub(1)
     }
 
     /// Remove `amount` events from the parser
-    pub fn drain_events(&mut self, amount: usize) {
+    fn drain_events(&mut self, amount: usize) {
         self.events.truncate(self.events.len() - amount);
     }
 
@@ -407,6 +421,37 @@ impl<'t> Parser<'t> {
         m.complete(self, SyntaxKind::ERROR);
         self.error(err);
     }
+
+    pub fn err_if_not_ts(&mut self, mut marker: impl BorrowMut<CompletedMarker>, err: &str) {
+        if self.typescript {
+            return;
+        }
+        let borrow = marker.borrow_mut();
+        borrow.change_kind(self, SyntaxKind::ERROR);
+        let err = self.err_builder(err).primary(borrow.range(self), "");
+
+        self.error(err);
+    }
+
+    /// Try running a parser function and backtrack if any errors occured
+    pub fn try_parse<F>(&mut self, func: F) -> Option<CompletedMarker>
+    where
+        F: FnOnce(&mut Parser) -> Option<CompletedMarker>,
+    {
+        let checkpoint = self.checkpoint();
+        let res = func(self);
+        if self.events[checkpoint.event_pos..self.cur_event_pos()]
+            .iter()
+            .any(|x| matches!(x, Event::Error { .. }))
+        {
+            self.rewind(checkpoint);
+            return None;
+        }
+        if res.is_none() {
+            self.rewind(checkpoint);
+        }
+        res
+    }
 }
 
 /// A structure signifying the start of parsing of a syntax tree node
@@ -417,6 +462,7 @@ pub struct Marker {
     /// The byte index where the node starts
     pub start: usize,
     pub old_start: u32,
+    pub(crate) child_idx: Option<usize>,
 }
 
 impl Marker {
@@ -425,6 +471,7 @@ impl Marker {
             pos,
             start,
             old_start: pos,
+            child_idx: None,
         }
     }
 
@@ -452,7 +499,8 @@ impl Marker {
         p.push_event(Event::Finish {
             end: p.tokens.last_tok().map(|t| t.range.end).unwrap_or(0),
         });
-        CompletedMarker::new(self.pos, finish_pos, kind).old_start(self.old_start)
+        let new = CompletedMarker::new(self.pos, finish_pos, kind);
+        new.old_start(self.old_start)
     }
 
     /// Abandons the syntax tree node. All its children
@@ -466,6 +514,17 @@ impl Marker {
                     forward_parent: None,
                     ..
                 }) => (),
+                _ => unreachable!(),
+            }
+        }
+        if let Some(idx) = self.child_idx {
+            match p.events[idx] {
+                Event::Start {
+                    ref mut forward_parent,
+                    ..
+                } => {
+                    *forward_parent = None;
+                }
                 _ => unreachable!(),
             }
         }
@@ -553,7 +612,7 @@ impl CompletedMarker {
     /// then mark `NEWSTART` as `START`'s parent with saving its relative
     /// distance to `NEWSTART` into forward_parent(=2 in this case);
     pub fn precede(self, p: &mut Parser) -> Marker {
-        let new_pos = p.start();
+        let mut new_pos = p.start();
         let idx = self.start_pos as usize;
         match p.events[idx] {
             Event::Start {
@@ -564,6 +623,7 @@ impl CompletedMarker {
             }
             _ => unreachable!(),
         }
+        new_pos.child_idx = Some(self.start_pos as usize);
         new_pos.old_start(self.old_start as u32)
     }
 
@@ -594,4 +654,15 @@ impl CompletedMarker {
     pub fn kind(&self) -> SyntaxKind {
         self.kind
     }
+
+    pub fn err_if_not_ts(&mut self, p: &mut Parser, err: &str) {
+        p.err_if_not_ts(self, err);
+    }
+}
+
+/// A structure signifying the Parser progress at one point in time
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub struct Checkpoint {
+    pub token_pos: usize,
+    pub event_pos: usize,
 }
