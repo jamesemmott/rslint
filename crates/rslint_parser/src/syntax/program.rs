@@ -71,7 +71,7 @@ pub fn import_decl(p: &mut Parser) -> CompletedMarker {
         _ => {
             let err = p
                 .err_builder("Expected an import clause, but found none")
-                .primary(p.cur_tok(), "");
+                .primary(p.cur_tok().range, "");
 
             p.err_recover(err, STMT_RECOVERY_SET, true);
         }
@@ -129,7 +129,7 @@ fn from_clause(p: &mut Parser) {
     if p.cur_src() != "from" {
         let err = p
             .err_builder("Expected a `from` clause, but found none")
-            .primary(p.cur_tok(), "");
+            .primary(p.cur_tok().range, "");
 
         p.err_recover(err, STMT_RECOVERY_SET, true);
     } else {
@@ -239,7 +239,7 @@ pub fn export_decl(p: &mut Parser) -> CompletedMarker {
                 } else {
                     let err = p
                         .err_builder("Expected an item to export, but found none")
-                        .primary(p.cur_tok(), "");
+                        .primary(p.cur_tok().range, "");
 
                     p.error(err);
                     m.complete(p, ERROR)

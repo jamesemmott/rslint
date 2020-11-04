@@ -13,7 +13,7 @@ pub fn pattern(p: &mut Parser) -> Option<CompletedMarker> {
         _ => {
             let err = p
                 .err_builder("Expected an identifier or pattern, but found none")
-                .primary(p.cur_tok(), "");
+                .primary(p.cur_tok().range, "");
             let mut ts = token_set![T![ident], T![yield], T![await], T!['['],];
             if p.state.allow_object_expr {
                 ts = ts.union(token_set![T!['{']]);
@@ -44,7 +44,7 @@ pub fn binding_identifier(p: &mut Parser) -> Option<CompletedMarker> {
     if p.at(T![yield]) && p.state.in_generator {
         let err = p
             .err_builder("Illegal use of `yield` as an identifier in generator function")
-            .primary(p.cur_tok(), "");
+            .primary(p.cur_tok().range, "");
 
         p.error(err);
     }
@@ -52,7 +52,7 @@ pub fn binding_identifier(p: &mut Parser) -> Option<CompletedMarker> {
     if p.at(T![await]) && p.state.in_async {
         let err = p
             .err_builder("Illegal use of `await` as an identifier in an async context")
-            .primary(p.cur_tok(), "");
+            .primary(p.cur_tok().range, "");
 
         p.error(err);
     }
@@ -63,7 +63,7 @@ pub fn binding_identifier(p: &mut Parser) -> Option<CompletedMarker> {
                 "Illegal use of `{}` as an identifier in strict mode",
                 p.cur_src()
             ))
-            .primary(p.cur_tok(), "");
+            .primary(p.cur_tok().range, "");
 
         p.error(err);
     }

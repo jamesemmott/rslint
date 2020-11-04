@@ -12,6 +12,7 @@ use crate::{
     SyntaxKind::*,
     *,
 };
+use rslint_errors::Diagnostic;
 
 pub const LITERAL: TokenSet = token_set![TRUE_KW, FALSE_KW, NUMBER, STRING, NULL_KW, REGEX];
 
@@ -88,6 +89,30 @@ pub fn literal(p: &mut Parser) -> Option<CompletedMarker> {
 
 /// An assignment expression such as `foo += bar` or `foo = 5`.
 pub fn assign_expr(p: &mut Parser) -> Option<CompletedMarker> {
+    if p.at(T![<])
+        && (token_set![T![ident], T![await], T![yield]].contains(p.nth(1)) || p.nth(1).is_keyword())
+    {
+        let res = try_parse_ts(p, |p| {
+            let m = p.start();
+            ts_type_params(p)?;
+            let res = assign_expr_base(p);
+            if res.map(|x| x.kind()) != Some(ARROW_EXPR) {
+                m.abandon(p);
+                None
+            } else {
+                res.unwrap().undo_completion(p).abandon(p);
+                Some(m.complete(p, ARROW_EXPR))
+            }
+        });
+        if let Some(mut res) = res {
+            res.err_if_not_ts(p, "type parameters can only be used in TypeScript files");
+            return Some(res);
+        }
+    }
+    assign_expr_base(p)
+}
+
+fn assign_expr_base(p: &mut Parser) -> Option<CompletedMarker> {
     if p.state.in_generator && p.at(T![yield]) {
         return Some(yield_expr(p));
     }
@@ -191,7 +216,10 @@ pub fn conditional_expr(p: &mut Parser) -> Option<CompletedMarker> {
     if p.at(T![?]) {
         let m = lhs?.precede(p);
         p.bump_any();
-        assign_expr(p);
+        assign_expr(&mut *p.with_state(ParserState {
+            in_cond_expr: true,
+            ..p.state.clone()
+        }));
         p.expect(T![:]);
         assign_expr(p);
         return Some(m.complete(p, COND_EXPR));
@@ -245,7 +273,7 @@ fn binary_expr_recursive(
     let op = p.cur();
     let op_tok = p.cur_tok();
 
-    let err: Option<(ErrorBuilder, TextRange, TextRange)> = if let Some(UNARY_EXPR) =
+    let err: Option<(Diagnostic, TextRange, TextRange)> = if let Some(UNARY_EXPR) =
         left.map(|x| x.kind())
     {
         let left_ref = left.as_ref().unwrap();
@@ -253,7 +281,7 @@ fn binary_expr_recursive(
         if op == T![**] && !is_update_expr(p, left.as_ref().unwrap()) {
             let err = p.err_builder("Exponentiation cannot be applied to a unary expression because it is ambiguous")
                 .secondary(left_ref.range(p), "Because this expression would first be evaluated...")
-                .primary(p.cur_tok(), "...Then it would be used for the value to be exponentiated, which is most likely unwanted behavior");
+                .primary(p.cur_tok().range, "...Then it would be used for the value to be exponentiated, which is most likely unwanted behavior");
 
             let parsed = p.parse_marker::<UnaryExpr>(left_ref);
             let start = left_ref.offset_range(p, parsed.expr().unwrap().syntax().text_range());
@@ -274,7 +302,7 @@ fn binary_expr_recursive(
                 let err = p.err_builder("The nullish coalescing operator (??) cannot be mixed with logical operators (|| and &&)")
                     .secondary(left_ref.range(p), "Because this expression would first be evaluated...")
                     .primary(op_tok.range.to_owned(), "...Then it would be used for the left hand side value of this operator, which is most likely unwanted behavior")
-                    .note(&format!("if this is expected, indicate precedence by wrapping `{}` in parentheses", color(left_ref.text(p))));
+                    .footer_note(&format!("if this is expected, indicate precedence by wrapping `{}` in parentheses", color(left_ref.text(p))));
 
                 p.error(err);
             }
@@ -287,8 +315,8 @@ fn binary_expr_recursive(
     // This is a hack to allow us to effectively recover from `foo + / bar`
     let right = if get_precedence(p.cur()).is_some() && !p.at_ts(token_set![T![-], T![+]]) {
         let err = p.err_builder(&format!("Expected an expression for the right hand side of a `{}`, but found an operator instead", p.token_src(&op_tok)))
-            .secondary(op_tok.to_owned(), "This operator requires a right hand side value")
-            .primary(p.cur_tok(), "But this operator was encountered instead");
+            .secondary(op_tok.to_owned().range, "This operator requires a right hand side value")
+            .primary(p.cur_tok().range, "But this operator was encountered instead");
 
         p.error(err);
         None
@@ -315,7 +343,7 @@ fn binary_expr_recursive(
             let range = TextRange::new(start.start(), marker.range(p).end());
             let text = &format!("{}({})", p.source(op), p.source(range));
 
-            err = err.help(&format!("did you mean `{}`?", color(text)));
+            err = err.footer_help(&format!("did you mean `{}`?", color(text)));
             p.error(err);
         }
     }
@@ -334,7 +362,7 @@ fn binary_expr_recursive(
             let err = p.err_builder("The nullish coalescing operator (??) cannot be mixed with logical operators (|| and &&)")
                     .secondary(rhs_range, "Because this expression would first be evaluated...")
                     .primary(op_tok.range, "...Then it would be used for the right hand side value of this operator, which is most likely unwanted behavior")
-                    .note(&format!("if this is expected, indicate precedence by wrapping `{}` in parentheses", color(parsed.rhs().unwrap().syntax().text().to_string().trim())));
+                    .footer_note(&format!("if this is expected, indicate precedence by wrapping `{}` in parentheses", color(parsed.rhs().unwrap().syntax().text().to_string().trim())));
 
             p.error(err);
         }
@@ -344,7 +372,7 @@ fn binary_expr_recursive(
             let err = p.err_builder("The nullish coalescing operator (??) cannot be mixed with logical operators (|| and &&)")
                 .secondary(right_ref.offset_range(p, parsed.lhs().unwrap().syntax().text_range()), "Because this expression would first be evaluated...")
                 .primary(right_ref.offset_range(p, parsed.op_token().unwrap().text_range()), "...Then it would be used for the left hand side value of this operator, which is most likely unwanted behavior")
-                .note(&format!("if this is expected, indicate precedence by wrapping `{}` in parentheses", color(parsed.lhs().unwrap().syntax().text().to_string().trim())));
+                .footer_note(&format!("if this is expected, indicate precedence by wrapping `{}` in parentheses", color(parsed.lhs().unwrap().syntax().text().to_string().trim())));
 
             p.error(err);
         }
@@ -393,7 +421,8 @@ pub fn member_or_new_expr(p: &mut Parser, new_expr: bool) -> Option<CompletedMar
         }
 
         if p.at(T![<]) {
-            let mut args = ts_type_args(p);
+            let mut args =
+                ts_type_args(p).expect("ts_type_args returned None despite no_recovery=false");
             args.err_if_not_ts(p, "type arguments are only allowed in TypeScript files");
             if !p.at(T!['(']) {
                 // TODO: add a "consider adding adding parentheses after the expression" suggestion once rslint_errors lands
@@ -451,6 +480,7 @@ pub fn subscripts(p: &mut Parser, lhs: CompletedMarker, no_call: bool) -> Comple
     // foo()?.baz[].
     // BAR`b
     let mut lhs = optional_chain(p, lhs);
+    let mut should_try_parsing_ts = true;
     while !p.at(EOF) {
         match p.cur() {
             T!['('] if !no_call => {
@@ -462,30 +492,35 @@ pub fn subscripts(p: &mut Parser, lhs: CompletedMarker, no_call: bool) -> Comple
             }
             T!['['] => lhs = bracket_expr(p, lhs, false),
             T![.] => lhs = dot_expr(p, lhs, false),
-            T![!] if p.typescript && !p.has_linebreak_before_n(0) => {
+            T![!] if !p.has_linebreak_before_n(0) => {
                 lhs = {
                     let m = lhs.precede(p);
                     p.bump_any();
-                    m.complete(p, TS_NON_NULL)
+                    let mut comp = m.complete(p, TS_NON_NULL);
+                    comp.err_if_not_ts(
+                        p,
+                        "non-null assertions can only be used in TypeScript files",
+                    );
+                    comp
                 }
             }
-            T![<] if p.typescript => {
-                let m = lhs.precede(p);
-                // TODO: handle generic async arrow function expressions
-                ts_type_args(p);
-                if !no_call && p.at(T!['(']) {
-                    args(p);
-                    lhs = m.complete(p, CALL_EXPR);
-                } else if p.at(BACKTICK) {
-                    m.abandon(p);
-                    lhs = template(p, Some(lhs));
-                } else if no_call {
-                    p.expect(BACKTICK);
-                } else {
-                    let err = p.err_builder(&format!("expected a a backtick or `(` following type arguments, but instead found `{}`", p.cur_src()))
-                        .primary(p.cur_tok().range, "");
-
-                    p.error(err);
+            T![<] if p.typescript && should_try_parsing_ts => {
+                let res = try_parse_ts(p, |p| {
+                    let m = lhs.precede(p);
+                    // TODO: handle generic async arrow function expressions
+                    ts_type_args(p)?;
+                    if !no_call && p.at(T!['(']) {
+                        args(p);
+                        Some(m.complete(p, CALL_EXPR))
+                    } else if p.at(BACKTICK) {
+                        m.abandon(p);
+                        Some(template(p, Some(lhs)))
+                    } else {
+                        None
+                    }
+                });
+                if res.is_none() {
+                    should_try_parsing_ts = false;
                 }
             }
             BACKTICK => lhs = template(p, Some(lhs)),
@@ -648,6 +683,7 @@ pub fn paren_or_arrow_expr(p: &mut Parser, can_be_arrow: bool) -> CompletedMarke
 
     loop {
         if temp.at(T![...]) {
+            expr_m.abandon(&mut *temp);
             let m = temp.start();
             temp.bump_any();
             pattern(&mut *temp);
@@ -674,32 +710,61 @@ pub fn paren_or_arrow_expr(p: &mut Parser, can_be_arrow: bool) -> CompletedMarke
                 trailing_comma_marker = Some(sub_m.complete(&mut *temp, ERROR));
                 temp.bump_any();
                 break;
+            } else {
+                sub_m.abandon(&mut *temp);
             }
             had_comma = true;
         } else {
+            sub_m.abandon(&mut *temp);
             if had_comma {
                 expr_m.complete(&mut *temp, SEQUENCE_EXPR);
+            } else {
+                expr_m.abandon(&mut *temp);
             }
             temp.expect(T![')']);
             break;
         }
     }
     drop(temp);
-    let has_ret_type =
-        !p.state.in_cond_expr && p.typescript && p.at(T![:]) && !p.state.in_case_cond;
+    // if we are in a ternary expression, then we need to try and see if parsing as an arrow worked
+    // if it did then we just return it, otherwise it should be interpreted as a grouping expr
+    if p.state.in_cond_expr && p.at(T![:]) {
+        // TODO: handle this more efficiently
+        let events = p.events.clone();
+        let func = |p: &mut Parser| {
+            let p = &mut *p.with_state(ParserState {
+                no_recovery: true,
+                ..p.state.clone()
+            });
+            p.rewind(checkpoint);
+            formal_parameters(p);
+            p.bump_any();
+            ts_type(p)?;
+            p.expect_no_recover(T![=>])?;
+            arrow_body(p)?;
+            Some(())
+        };
+        if func(p).is_some() {
+            let mut complete = m.complete(p, ARROW_EXPR);
+            complete.err_if_not_ts(
+                p,
+                "arrow functions can only have return types in TypeScript files",
+            );
+            return complete;
+        } else {
+            p.events = events;
+        }
+    }
+    let has_ret_type = !p.state.in_cond_expr && p.at(T![:]) && !p.state.in_case_cond;
 
     // This is an arrow expr, so we rewind the parser and reparse as parameters
     // This is kind of inefficient but in the grand scheme of things it does not matter
-    // since the parser is already crazy fast
     // FIXME: verify that this logic is correct
-    if (p.at(T![=>]) && !p.has_linebreak_before_n(0))
-        || (p.typescript && p.state.in_cond_expr && p.at(T![:]))
-        || has_ret_type
-    {
-        if !can_be_arrow && (!p.at(T![:]) && !p.typescript) {
+    if (p.at(T![=>]) && !p.has_linebreak_before_n(0)) || has_ret_type {
+        if !can_be_arrow && !p.at(T![:]) {
             let err = p
                 .err_builder("Unexpected token `=>`")
-                .primary(p.cur_tok(), "an arrow expression is not allowed here");
+                .primary(p.cur_tok().range, "an arrow expression is not allowed here");
 
             p.error(err);
         } else {
@@ -838,10 +903,12 @@ pub fn primary_expr(p: &mut Parser) -> Option<CompletedMarker> {
                     let m = p.start();
                     p.bump_any();
                     if p.at(T![<]) {
-                        ts_type_params(p).err_if_not_ts(
-                            p,
-                            "type parameters may only be used in TypeScript files",
-                        );
+                        ts_type_params(p)
+                            .expect("ts_type_param returned None despite no_recovery=false")
+                            .err_if_not_ts(
+                                p,
+                                "type parameters may only be used in TypeScript files",
+                            );
                     }
                     if p.at(T!['(']) {
                         formal_parameters(p);
@@ -937,14 +1004,14 @@ pub fn primary_expr(p: &mut Parser) -> Option<CompletedMarker> {
                             "Expected `meta` following an import keyword, but found `{}`",
                             p.token_src(&p.cur_tok())
                         ))
-                        .primary(p.cur_tok(), "");
+                        .primary(p.cur_tok().range, "");
 
                     p.err_and_bump(err);
                     m.complete(p, ERROR)
                 } else {
                     let err = p
                         .err_builder("Expected `meta` following an import keyword, but found none")
-                        .primary(p.cur_tok(), "");
+                        .primary(p.cur_tok().range, "");
 
                     p.error(err);
                     m.complete(p, ERROR)
@@ -992,7 +1059,7 @@ pub fn identifier_reference(p: &mut Parser) -> Option<CompletedMarker> {
         _ => {
             let err = p
                 .err_builder("Expected an identifier, but found none")
-                .primary(p.cur_tok(), "");
+                .primary(p.cur_tok().range, "");
 
             p.err_recover(err, p.state.expr_recovery_set, true);
             None
@@ -1227,13 +1294,15 @@ pub fn lhs_expr(p: &mut Parser) -> Option<CompletedMarker> {
     let m = lhs.precede(p);
     let type_args = if p.at(T![<]) {
         let checkpoint = p.checkpoint();
-        let mut complete = ts_type_args(p);
+        let mut complete = try_parse_ts(p, |p| ts_type_args(p));
         if !p.at(T!['(']) {
             p.rewind(checkpoint);
             None
         } else {
-            complete.err_if_not_ts(p, "type arguments can only be used in TypeScript files");
-            Some(complete)
+            if let Some(ref mut comp) = complete {
+                comp.err_if_not_ts(p, "type arguments can only be used in TypeScript files");
+            }
+            complete
         }
     } else {
         None
