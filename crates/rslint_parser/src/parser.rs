@@ -95,7 +95,7 @@ impl<'t> Parser<'t> {
             events: vec![],
             steps: Cell::new(0),
             state: ParserState::default(),
-            typescript: true,
+            typescript: false,
         }
     }
 
