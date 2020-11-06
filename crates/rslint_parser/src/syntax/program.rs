@@ -17,7 +17,7 @@ pub fn script(p: &mut Parser) -> CompletedMarker {
     );
     let m = p.start();
     p.eat(T![shebang]);
-    block_items(p, true, true, None);
+    block_items(p, true, true, false, None);
     m.complete(p, SyntaxKind::SCRIPT)
 }
 
@@ -32,7 +32,7 @@ pub fn module(p: &mut Parser) -> CompletedMarker {
     );
     let m = p.start();
     p.eat(T![shebang]);
-    block_items(p, true, true, None);
+    block_items(p, true, true, false, None);
     m.complete(p, SyntaxKind::MODULE)
 }
 

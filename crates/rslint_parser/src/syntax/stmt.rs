@@ -366,7 +366,7 @@ pub fn block_stmt(
     }
     let m = p.start();
     p.bump(T!['{']);
-    block_items(p, function_body, false, recovery_set);
+    block_items(p, function_body, false, true, recovery_set);
     p.expect(T!['}']);
     Some(m.complete(p, BLOCK_STMT))
 }
@@ -374,7 +374,7 @@ pub fn block_stmt(
 pub fn block_stmt_unchecked(p: &mut Parser, function_body: bool) -> CompletedMarker {
     let m = p.start();
     p.bump(T!['{']);
-    block_items(p, function_body, false, None);
+    block_items(p, function_body, false, true, None);
     p.expect(T!['}']);
     m.complete(p, BLOCK_STMT)
 }
@@ -385,6 +385,7 @@ pub(crate) fn block_items(
     p: &mut Parser,
     directives: bool,
     top_level: bool,
+    stop_on_r_curly: bool,
     recovery_set: impl Into<Option<TokenSet>>,
 ) {
     let old = p.state.clone();
@@ -393,7 +394,7 @@ pub(crate) fn block_items(
     let mut could_be_directive = directives;
 
     while !p.at(EOF) {
-        if !top_level && p.at(T!['}']) {
+        if stop_on_r_curly && p.at(T!['}']) {
             break;
         }
 
