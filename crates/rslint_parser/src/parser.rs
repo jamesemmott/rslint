@@ -82,45 +82,24 @@ pub struct Parser<'t> {
     // We use a cell so we dont need &mut self on `nth()`
     steps: Cell<u32>,
     pub state: ParserState,
-    /// Whether the parser is configured to parse TypeScript
-    pub typescript: bool,
+    pub syntax: Syntax,
 }
 
 impl<'t> Parser<'t> {
-    /// Make a new parser configured to parse a script
-    pub fn new(tokens: TokenSource<'t>, file_id: usize) -> Parser<'t> {
+    /// Make a new parser
+    pub fn new(tokens: TokenSource<'t>, file_id: usize, syntax: Syntax) -> Parser<'t> {
         Parser {
             file_id,
             tokens,
             events: vec![],
             steps: Cell::new(0),
             state: ParserState::default(),
-            typescript: false,
+            syntax,
         }
     }
 
-    /// Make a new parser configured to parse a module
-    pub fn new_module(tokens: TokenSource<'t>, file_id: usize) -> Parser<'t> {
-        Parser {
-            file_id,
-            tokens,
-            events: vec![],
-            steps: Cell::new(0),
-            state: ParserState::module(),
-            typescript: false,
-        }
-    }
-
-    /// Make a new parser configured to parse TypeScript
-    pub fn new_typescript(tokens: TokenSource<'t>, file_id: usize) -> Parser<'t> {
-        Parser {
-            file_id,
-            tokens,
-            events: vec![],
-            steps: Cell::new(0),
-            state: ParserState::default(),
-            typescript: true,
-        }
+    pub(crate) fn typescript(&self) -> bool {
+        self.syntax.file_kind == FileKind::TypeScript
     }
 
     /// Get the source code of a token
@@ -429,7 +408,7 @@ impl<'t> Parser<'t> {
     }
 
     pub fn err_if_not_ts(&mut self, mut marker: impl BorrowMut<CompletedMarker>, err: &str) {
-        if self.typescript {
+        if self.typescript() {
             return;
         }
         let borrow = marker.borrow_mut();

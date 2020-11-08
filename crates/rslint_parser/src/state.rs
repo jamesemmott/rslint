@@ -44,6 +44,7 @@ pub struct ParserState {
     pub in_cond_expr: bool,
     pub in_case_cond: bool,
     pub(crate) no_recovery: bool,
+    pub in_declare: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -72,6 +73,7 @@ impl Default for ParserState {
             in_cond_expr: false,
             in_case_cond: false,
             no_recovery: false,
+            in_declare: false,
         }
     }
 }
@@ -95,6 +97,7 @@ impl ParserState {
             in_cond_expr: false,
             in_case_cond: false,
             no_recovery: false,
+            in_declare: false,
         }
     }
 

@@ -161,7 +161,7 @@ fn assign_expr_recursive(
         if p.at(T![=]) {
             if !is_valid_target(p, p.parse_marker(&target)) {
                 p.rewind(checkpoint);
-                target = pattern(p)?;
+                target = pattern(p, false)?;
             }
         } else {
             let parsed = p.parse_marker::<Expr>(&target);
@@ -169,7 +169,7 @@ fn assign_expr_recursive(
             check_simple_assign_target(p, &parsed, target.range(p));
             if (parsed.text() == "eval" || parsed.text() == "arguments")
                 && p.state.strict.is_some()
-                && p.typescript
+                && p.typescript()
             {
                 let err = p
                     .err_builder("`eval` and `arguments` cannot be assigned to")
@@ -516,7 +516,7 @@ pub fn subscripts(p: &mut Parser, lhs: CompletedMarker, no_call: bool) -> Comple
                     comp
                 }
             }
-            T![<] if p.typescript && should_try_parsing_ts => {
+            T![<] if p.typescript() && should_try_parsing_ts => {
                 let res = try_parse_ts(p, |p| {
                     let m = lhs.precede(p);
                     // TODO: handle generic async arrow function expressions
@@ -698,7 +698,7 @@ pub fn paren_or_arrow_expr(p: &mut Parser, can_be_arrow: bool) -> CompletedMarke
             expr_m.abandon(&mut *temp);
             let m = temp.start();
             temp.bump_any();
-            pattern(&mut *temp);
+            pattern(&mut *temp, false);
             let complete = m.complete(&mut *temp, REST_PATTERN);
             spread_range = Some(complete.range(&*temp));
             if !temp.eat(T![')']) {
@@ -788,7 +788,7 @@ pub fn paren_or_arrow_expr(p: &mut Parser, can_be_arrow: bool) -> CompletedMarke
             if p.eat(T![:]) {
                 ts_type(p);
                 let complete = maybe_err_m.complete(p, ERROR);
-                if !p.typescript {
+                if !p.typescript() {
                     let err = p
                         .err_builder("functions may only have return types in TypeScript files")
                         .primary(complete.range(p), "");
@@ -935,7 +935,7 @@ pub fn primary_expr(p: &mut Parser) -> Option<CompletedMarker> {
                     if p.eat(T![:]) {
                         ts_type(p);
                         let complete = maybe_err_m.complete(p, ERROR);
-                        if !p.typescript {
+                        if !p.typescript() {
                             let err = p
                                 .err_builder(
                                     "functions may only have return types in TypeScript files",
@@ -1409,7 +1409,7 @@ pub fn unary_expr(p: &mut Parser) -> Option<CompletedMarker> {
         let op = p.cur();
         p.bump_any();
         let res = unary_expr(p)?;
-        if op == T![delete] && p.typescript {
+        if op == T![delete] && p.typescript() {
             match res.kind() {
                 DOT_EXPR | BRACKET_EXPR => {}
                 _ => {

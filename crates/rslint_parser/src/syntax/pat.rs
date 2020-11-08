@@ -1,7 +1,7 @@
 use super::expr::{assign_expr, identifier_name, identifier_reference, object_prop_name};
 use crate::{SyntaxKind::*, *};
 
-pub fn pattern(p: &mut Parser) -> Option<CompletedMarker> {
+pub fn pattern(p: &mut Parser, recover_with_eq: bool) -> Option<CompletedMarker> {
     Some(match p.cur() {
         T![ident] | T![yield] | T![await] => {
             let m = p.start();
@@ -17,6 +17,9 @@ pub fn pattern(p: &mut Parser) -> Option<CompletedMarker> {
             let mut ts = token_set![T![ident], T![yield], T![await], T!['['],];
             if p.state.allow_object_expr {
                 ts = ts.union(token_set![T!['{']]);
+            }
+            if recover_with_eq {
+                ts = ts.union(token_set![T![=]]);
             }
             p.err_recover(err, ts, false);
             return None;
@@ -74,7 +77,7 @@ pub fn binding_identifier(p: &mut Parser) -> Option<CompletedMarker> {
 }
 
 pub fn binding_element(p: &mut Parser) -> Option<CompletedMarker> {
-    let left = pattern(p);
+    let left = pattern(p, true);
 
     if p.at(T![=]) {
         let m = left.map(|m| m.precede(p)).unwrap_or_else(|| p.start());
@@ -99,7 +102,7 @@ pub fn array_binding_pattern(p: &mut Parser) -> CompletedMarker {
             let m = p.start();
             p.bump_any();
 
-            pattern(p);
+            pattern(p, false);
 
             m.complete(p, REST_PATTERN);
             break;
@@ -137,7 +140,7 @@ pub fn object_binding_pattern(p: &mut Parser) -> CompletedMarker {
             let m = p.start();
             p.bump_any();
 
-            pattern(p);
+            pattern(p, false);
             m.complete(p, REST_PATTERN);
             break;
         }
