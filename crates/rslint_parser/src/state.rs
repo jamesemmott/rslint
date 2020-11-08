@@ -79,28 +79,6 @@ impl Default for ParserState {
 }
 
 impl ParserState {
-    pub fn module() -> Self {
-        Self {
-            allow_object_expr: true,
-            include_in: true,
-            continue_allowed: false,
-            break_allowed: false,
-            labels: HashMap::new(),
-            in_generator: false,
-            in_function: false,
-            potential_arrow_start: false,
-            in_async: false,
-            strict: Some(StrictMode::Module),
-            is_module: true,
-            default_item: None,
-            expr_recovery_set: EXPR_RECOVERY_SET,
-            in_cond_expr: false,
-            in_case_cond: false,
-            no_recovery: false,
-            in_declare: false,
-        }
-    }
-
     /// Check for duplicate defaults and update state
     pub fn check_default(
         &mut self,

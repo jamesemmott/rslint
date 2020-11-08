@@ -624,7 +624,7 @@ pub fn var_decl(p: &mut Parser, no_semi: bool) -> CompletedMarker {
 // A single declarator, either `ident` or `ident = assign_expr`
 fn declarator(p: &mut Parser, is_const: &Option<Range<usize>>, for_stmt: bool) -> CompletedMarker {
     let m = p.start();
-    let pat = pattern(p, true);
+    let pat = pattern(p);
 
     if p.eat(T![=]) {
         assign_expr(p);
@@ -877,7 +877,7 @@ fn catch_clause(p: &mut Parser) {
     p.expect(T![catch]);
 
     if p.eat(T!['(']) {
-        pattern(p, false);
+        pattern(p);
         p.expect(T![')']);
     }
 

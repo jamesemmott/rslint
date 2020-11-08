@@ -161,7 +161,7 @@ fn assign_expr_recursive(
         if p.at(T![=]) {
             if !is_valid_target(p, p.parse_marker(&target)) {
                 p.rewind(checkpoint);
-                target = pattern(p, false)?;
+                target = pattern(p)?;
             }
         } else {
             let parsed = p.parse_marker::<Expr>(&target);
@@ -698,7 +698,7 @@ pub fn paren_or_arrow_expr(p: &mut Parser, can_be_arrow: bool) -> CompletedMarke
             expr_m.abandon(&mut *temp);
             let m = temp.start();
             temp.bump_any();
-            pattern(&mut *temp, false);
+            pattern(&mut *temp);
             let complete = m.complete(&mut *temp, REST_PATTERN);
             spread_range = Some(complete.range(&*temp));
             if !temp.eat(T![')']) {
