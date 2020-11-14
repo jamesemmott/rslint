@@ -646,7 +646,7 @@ fn declarator(p: &mut Parser, is_const: &Option<Range<usize>>, for_stmt: bool) -
 
     let cur = p.cur_tok().range;
     let mut should_abandon = !p.eat(T![!]);
-    if should_abandon && !p.typescript() {
+    if !should_abandon && !p.typescript() {
         let err = p
             .err_builder("definite assignment assertions can only be used in TypeScript files")
             .primary(cur, "");
