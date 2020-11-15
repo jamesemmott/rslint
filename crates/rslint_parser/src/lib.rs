@@ -133,6 +133,9 @@ pub trait TreeSink {
 
     /// Emit an error
     fn error(&mut self, error: ParserError);
+
+    /// Consume multiple tokens and glue them into one kind
+    fn consume_multiple_tokens(&mut self, amount: u8, kind: SyntaxKind);
 }
 
 /// Matches a `SyntaxNode` against an `ast` type.
@@ -175,10 +178,14 @@ pub struct Syntax {
 
 impl Syntax {
     pub fn new(file_kind: FileKind) -> Self {
-        Self {
+        let mut this = Self {
             file_kind,
             ..Default::default()
+        };
+        if file_kind == FileKind::TypeScript {
+            this = this.typescript();
         }
+        this
     }
 
     pub fn top_level_await(mut self) -> Self {
@@ -230,5 +237,11 @@ pub enum FileKind {
 impl Default for FileKind {
     fn default() -> Self {
         FileKind::Script
+    }
+}
+
+impl From<FileKind> for Syntax {
+    fn from(kind: FileKind) -> Self {
+        Syntax::new(kind)
     }
 }

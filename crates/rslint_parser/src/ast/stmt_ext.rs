@@ -418,3 +418,9 @@ impl AstNode for ConstructorParamOrPat {
         }
     }
 }
+
+impl TsEnumMember {
+    pub fn string_token(&self) -> Option<SyntaxToken> {
+        support::token(&self.syntax, STRING)
+    }
+}

@@ -41,6 +41,11 @@ pub enum Event {
     Error {
         err: ParserError,
     },
+
+    MultipleTokens {
+        amount: u8,
+        kind: SyntaxKind,
+    },
 }
 
 impl Event {
@@ -105,6 +110,7 @@ pub fn process(sink: &mut dyn TreeSink, mut events: Vec<Event>) {
                 sink.token(kind);
             }
             Event::Error { err } => sink.error(err),
+            Event::MultipleTokens { amount, kind } => sink.consume_multiple_tokens(amount, kind),
         }
     }
 }
