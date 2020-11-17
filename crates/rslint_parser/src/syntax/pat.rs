@@ -1,15 +1,22 @@
 use super::expr::{assign_expr, identifier_name, identifier_reference, object_prop_name};
 use crate::{SyntaxKind::*, *};
 
-pub fn pattern(p: &mut Parser) -> Option<CompletedMarker> {
+pub fn pattern(p: &mut Parser, parameters: bool) -> Option<CompletedMarker> {
     Some(match p.cur() {
         T![ident] | T![yield] | T![await] => {
             let m = p.start();
             binding_identifier(p);
             m.complete(p, SINGLE_PATTERN)
         }
-        T!['['] => array_binding_pattern(p),
-        T!['{'] if p.state.allow_object_expr => object_binding_pattern(p),
+        T![this] if parameters => {
+            let m = p.start();
+            let _m = p.start();
+            p.bump_remap(T![ident]);
+            _m.complete(p, NAME);
+            m.complete(p, SINGLE_PATTERN)
+        }
+        T!['['] => array_binding_pattern(p, parameters),
+        T!['{'] if p.state.allow_object_expr => object_binding_pattern(p, parameters),
         _ => {
             let err = p
                 .err_builder("Expected an identifier or pattern, but found none")
@@ -73,8 +80,8 @@ pub fn binding_identifier(p: &mut Parser) -> Option<CompletedMarker> {
     Some(m)
 }
 
-pub fn binding_element(p: &mut Parser) -> Option<CompletedMarker> {
-    let left = pattern(p);
+pub fn binding_element(p: &mut Parser, parameters: bool) -> Option<CompletedMarker> {
+    let left = pattern(p, parameters);
 
     if p.at(T![=]) {
         let m = left.map(|m| m.precede(p)).unwrap_or_else(|| p.start());
@@ -87,7 +94,7 @@ pub fn binding_element(p: &mut Parser) -> Option<CompletedMarker> {
     left
 }
 
-pub fn array_binding_pattern(p: &mut Parser) -> CompletedMarker {
+pub fn array_binding_pattern(p: &mut Parser, parameters: bool) -> CompletedMarker {
     let m = p.start();
     p.expect(T!['[']);
 
@@ -99,11 +106,11 @@ pub fn array_binding_pattern(p: &mut Parser) -> CompletedMarker {
             let m = p.start();
             p.bump_any();
 
-            pattern(p);
+            pattern(p, parameters);
 
             m.complete(p, REST_PATTERN);
             break;
-        } else if binding_element(p).is_none() {
+        } else if binding_element(p, parameters).is_none() {
             p.err_recover_no_err(
                 token_set![T![await], T![ident], T![yield], T![:], T![=], T![']']],
                 false,
@@ -118,7 +125,7 @@ pub fn array_binding_pattern(p: &mut Parser) -> CompletedMarker {
     m.complete(p, ARRAY_PATTERN)
 }
 
-pub fn object_binding_pattern(p: &mut Parser) -> CompletedMarker {
+pub fn object_binding_pattern(p: &mut Parser, parameters: bool) -> CompletedMarker {
     let m = p.start();
     p.expect(T!['{']);
     let mut first = true;
@@ -137,12 +144,12 @@ pub fn object_binding_pattern(p: &mut Parser) -> CompletedMarker {
             let m = p.start();
             p.bump_any();
 
-            pattern(p);
+            pattern(p, parameters);
             m.complete(p, REST_PATTERN);
             break;
         }
 
-        object_binding_prop(p);
+        object_binding_prop(p, parameters);
     }
     p.expect(T!['}']);
     m.complete(p, OBJECT_PATTERN)
@@ -151,7 +158,7 @@ pub fn object_binding_pattern(p: &mut Parser) -> CompletedMarker {
 // test object_binding_prop
 // let { default: foo, bar } = {}
 // let { foo = bar, baz } = {}
-fn object_binding_prop(p: &mut Parser) -> Option<CompletedMarker> {
+fn object_binding_prop(p: &mut Parser, parameters: bool) -> Option<CompletedMarker> {
     let m = p.start();
     let name = if (p.cur().is_keyword() || p.cur() == T![ident]) && p.nth(1) == T![:] {
         identifier_name(p)
@@ -160,7 +167,7 @@ fn object_binding_prop(p: &mut Parser) -> Option<CompletedMarker> {
     };
 
     if p.eat(T![:]) {
-        binding_element(p);
+        binding_element(p, parameters);
         return Some(m.complete(p, KEY_VALUE_PATTERN));
     }
 

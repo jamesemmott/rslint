@@ -118,7 +118,8 @@ fn assign_expr_base(p: &mut Parser) -> Option<CompletedMarker> {
     if p.state.in_generator && p.at(T![yield]) {
         return Some(yield_expr(p));
     }
-    if p.state.in_async && p.at(T![await]) {
+    // FIXME: this shouldnt allow await in sync functions
+    if (p.state.in_async || p.syntax.top_level_await) && p.at(T![await]) {
         let m = p.start();
         p.bump_any();
         unary_expr(p);
@@ -163,7 +164,7 @@ fn assign_expr_recursive(
         if p.at(T![=]) {
             if !is_valid_target(p, p.parse_marker(&target)) {
                 p.rewind(checkpoint);
-                target = pattern(p)?;
+                target = pattern(p, false)?;
             }
         } else {
             let parsed = p.parse_marker::<Expr>(&target);
@@ -733,7 +734,7 @@ pub fn paren_or_arrow_expr(p: &mut Parser, can_be_arrow: bool) -> CompletedMarke
             expr_m.abandon(&mut *temp);
             let m = temp.start();
             temp.bump_any();
-            pattern(&mut *temp);
+            pattern(&mut *temp, true);
             let complete = m.complete(&mut *temp, REST_PATTERN);
             spread_range = Some(complete.range(&*temp));
             if !temp.eat(T![')']) {

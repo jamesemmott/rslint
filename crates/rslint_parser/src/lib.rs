@@ -220,9 +220,7 @@ impl Syntax {
 
     pub fn typescript(mut self) -> Self {
         self.file_kind = FileKind::TypeScript;
-        self.class_fields = true;
-        self.decorators = true;
-        self
+        self.class_fields().decorators().top_level_await()
     }
 }
 
